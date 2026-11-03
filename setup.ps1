@@ -2,16 +2,36 @@ param([switch]$SkipHexInstall)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 Set-Location -LiteralPath $root
+. (Join-Path $root 'app\prepare-tcl.ps1')
 
 function Get-Python312 {
+    $pythonDir = Join-Path $root '.python312'
+    $installedPython = Join-Path $pythonDir 'python.exe'
+    $tkCheck = "import tkinter as tk; w=tk.Tk(); w.withdraw(); w.destroy()"
+    function Test-PythonTk([string]$Executable, [string[]]$PrefixArguments=@()) {
+        $previousPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            Set-LaysTclEnvironment -Python $Executable -PrefixArguments $PrefixArguments
+            if ($PrefixArguments.Count) { & $Executable @PrefixArguments -c $tkCheck 1>$null 2>$null }
+            else { & $Executable -c $tkCheck 1>$null 2>$null }
+            return ($LASTEXITCODE -eq 0)
+        } finally { $ErrorActionPreference = $previousPreference }
+    }
+
     $bundled = Join-Path $root 'runtime\python.exe'
-    if (Test-Path -LiteralPath $bundled) { return $bundled }
+    if (Test-Path -LiteralPath $bundled) {
+        if (Test-PythonTk $bundled) { return $bundled }
+        Write-Output 'Bundled Python has no working Tcl/Tk; checking other Python 3.12 options.'
+    }
+    if (Test-Path -LiteralPath $installedPython) {
+        if (Test-PythonTk $installedPython) { return $installedPython }
+        throw "Python at $pythonDir cannot initialize Tcl/Tk. Remove .python312 and rerun setup."
+    }
     $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
     if ($pyLauncher) {
-        & py -3.12 --version *> $null
-        if ($LASTEXITCODE -eq 0) { return (Get-Command py).Source }
+        if (Test-PythonTk $pyLauncher.Source @('-3.12')) { return $pyLauncher.Source }
     }
-    $installedPython = Join-Path $root '.python312\python.exe'
     if (!(Test-Path -LiteralPath $installedPython)) {
         $installer = Join-Path $env:TEMP 'lays-python-3.12.10-amd64.exe'
         Invoke-WebRequest 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe' -OutFile $installer
@@ -19,7 +39,7 @@ function Get-Python312 {
         if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Python Software Foundation') {
             throw 'Python installer signature check failed.'
         }
-        $pythonDir = Join-Path $root '.python312'
+        New-Item -ItemType Directory -Force -Path $pythonDir | Out-Null
         # Start-Process joins argument arrays into one command line; quote this
         # value so a checkout under a path containing spaces installs correctly.
         $args = @('/quiet','InstallAllUsers=0',('TargetDir="{0}"' -f $pythonDir),'Include_pip=1','Include_tcltk=1','Include_test=0','Include_launcher=0','PrependPath=0','Shortcuts=0')
@@ -27,12 +47,24 @@ function Get-Python312 {
         if ($proc.ExitCode -ne 0) { throw "Python installer failed with exit code $($proc.ExitCode)." }
     }
     if (!(Test-Path -LiteralPath $installedPython)) { throw 'Python 3.12 installation did not create python.exe.' }
+    if (!(Test-PythonTk $installedPython)) { throw 'Python 3.12 installed, but Tcl/Tk could not initialize.' }
     return $installedPython
 }
 
 $pythonCommand = Get-Python312
 $envDir = Join-Path $root '.venv'
-if (!(Test-Path -LiteralPath (Join-Path $envDir 'Scripts\python.exe'))) {
+$venvPython = Join-Path $envDir 'Scripts\python.exe'
+$recreateVenv = !(Test-Path -LiteralPath $venvPython)
+if (!$recreateVenv) {
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $venvPython -c "import tkinter as tk; w=tk.Tk(); w.withdraw(); w.destroy()" 1>$null 2>$null
+        if ($LASTEXITCODE -ne 0) { $recreateVenv = $true }
+    } finally { $ErrorActionPreference = $previousPreference }
+}
+if ($recreateVenv) {
+    if (Test-Path -LiteralPath $envDir) { Remove-Item -LiteralPath $envDir -Recurse -Force }
     if ($pythonCommand -eq (Get-Command py -ErrorAction SilentlyContinue).Source) {
         & py -3.12 -m venv $envDir
     } else {

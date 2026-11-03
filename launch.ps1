@@ -1,7 +1,9 @@
 param([switch]$Execute, [ValidateSet('auto','nvidia','iris','cpu')][string]$VoiceGpu='nvidia', [switch]$NoVoice)
 $ErrorActionPreference = 'Stop'
 $python = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
-if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'runtime\python.exe')) { $python = Join-Path $PSScriptRoot 'runtime\python.exe' }
+if (!(Test-Path -LiteralPath $python)) { $python = Join-Path $PSScriptRoot 'runtime\python.exe' }
+. (Join-Path $PSScriptRoot 'app\prepare-tcl.ps1')
+Set-LaysTclEnvironment -Python $python
 $script = Join-Path $PSScriptRoot 'app\lays_companion.py'
 $stateDir = Join-Path $PSScriptRoot 'data'
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
