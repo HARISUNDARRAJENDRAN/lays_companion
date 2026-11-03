@@ -1,0 +1,9 @@
+{
+  "product": "LAYS Companion",
+  "platform": "Windows x64",
+  "setup": "setup.ps1",
+  "base_model": "Qwen/Qwen3.5-0.8B@2fc06364715b967f1860aea9cf38778875588b17",
+  "checkpoint": "Harisundar/lays-r5ft-ckpt@30758a7cd5772ccb65de34ecb013166bb5007d6d:round2/molab-round2-fast",
+  "private_checkpoint_requires_huggingface_access": true,
+  "git_lfs": false
+}
